@@ -1,0 +1,19 @@
+# ETL Pipeline Requirements
+# Install with: pip install -r requirements.txt
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database
+psycopg2-binary>=2.9.0  # PostgreSQL adapter
+sqlalchemy>=2.0.0       # ORM and database toolkit
+
+# Configuration
+pyyaml>=6.0             # For config file parsing
+
+# Data Validation (optional but recommended)
+great-expectations>=0.18.0  # Data quality checks
+
+# Logging and Monitoring
+python-dotenv>=1.0.0    # Environment variable management

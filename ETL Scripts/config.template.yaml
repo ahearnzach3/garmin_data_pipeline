@@ -1,0 +1,39 @@
+# Azure PostgreSQL Database Configuration Template
+# Copy this file to config.yaml and fill in your actual credentials
+# DO NOT commit config.yaml to GitHub (it's in .gitignore)
+
+database:
+  host: "your-server.postgres.database.azure.com"
+  port: 5432
+  database: "your_database_name"
+  user: "your_username"
+  password: "your_password"
+  sslmode: "require"  # Azure PostgreSQL requires SSL
+  schema: "garmin"  # Use separate schema for Garmin data (keeps public schema for Where2Run app)
+
+# Data file paths (relative to ETL Scripts directory)
+data_paths:
+  raw_data: "../Raw Data"
+  output_data: "../PBI Data/Final Dataframes"
+
+# Table names in PostgreSQL
+tables:
+  running_data: "running_data"
+  sleep_data: "sleep_data"
+  atl_data: "atl_data"
+  maxmet_data: "maxmet_data"
+  race_predictions: "race_predictions"
+  training_history: "training_history"
+  training_plan: "training_plan"
+  uds_data: "uds_data"
+
+# ETL Configuration
+etl_settings:
+  # How to handle existing data: 'replace', 'append', or 'upsert'
+  load_strategy: "replace"
+  
+  # Batch size for bulk inserts
+  batch_size: 1000
+  
+  # Enable verbose logging
+  verbose: true
