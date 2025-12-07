@@ -1,6 +1,11 @@
 """
-Main ETL Pipeline Orchestrator
-Automates the extraction, transformation, and loading of Garmin data to Azure PostgreSQL.
+Comprehensive Garmin Data ETL Pipeline
+Automates extraction, transformation, and loading of all Garmin datasets to PostgreSQL.
+
+This pipeline:
+1. Finds and aggregates date-stamped JSON files from Garmin exports
+2. Transforms data according to business rules
+3. Loads data to Azure PostgreSQL database (truncate and reload)
 """
 
 import argparse
@@ -11,12 +16,12 @@ from typing import Dict, List, Optional
 import sys
 
 from db_utils import DatabaseManager, setup_logging
-from transform_running_data import transform_running_data
-from extract_json_data import extract_running_data_from_json
+from aggregate_json_files import JSONAggregator
+from transform_all_datasets import transform_dataset, TRANSFORM_FUNCTIONS
 
 
 class GarminETLPipeline:
-    """Main ETL pipeline orchestrator."""
+    """Comprehensive ETL pipeline orchestrator for all Garmin datasets."""
     
     def __init__(self, config_path: str = 'config.yaml'):
         """
@@ -44,138 +49,78 @@ class GarminETLPipeline:
         self.logger.info("Testing database connection...")
         return self.db_manager.test_connection()
     
-    def find_latest_file(self, directory: str, pattern: str) -> Optional[Path]:
+    def process_dataset(
+        self, 
+        dataset_name: str,
+        force_pattern: Optional[str] = None
+    ) -> bool:
         """
-        Find the most recent file matching a pattern in a directory.
+        Process a single dataset: Extract → Transform → Load.
         
         Args:
-            directory: Directory to search
-            pattern: File pattern (e.g., 'Running_Data_*.csv')
-            
-        Returns:
-            Path to most recent file, or None if not found
-        """
-        search_dir = Path(directory)
-        if not search_dir.exists():
-            self.logger.error(f"Directory not found: {directory}")
-            return None
-        
-        files = list(search_dir.glob(pattern))
-        if not files:
-            self.logger.warning(f"No files matching '{pattern}' found in {directory}")
-            return None
-        
-        latest_file = max(files, key=lambda p: p.stat().st_mtime)
-        self.logger.info(f"Found latest file: {latest_file.name}")
-        return latest_file
-    
-    def process_running_data(self, input_file: Optional[str] = None) -> bool:
-        """
-        Process and load running data to database.
-        
-        Args:
-            input_file: Path to input file. If None, searches for JSON or CSV file.
+            dataset_name: Name of the dataset to process
+            force_pattern: Optional pattern override for testing
             
         Returns:
             True if successful, False otherwise
         """
         try:
             self.logger.info("=" * 60)
-            self.logger.info("Processing Running Data")
+            self.logger.info(f"Processing {dataset_name.upper()}")
             self.logger.info("=" * 60)
             
-            df = None
-            
-            # Find input file if not specified
-            if input_file is None:
-                raw_data_dir = self.config['data_paths']['raw_data']
-                
-                # First, try to find JSON file (preferred method)
-                self.logger.info("Looking for Garmin JSON export...")
-                try:
-                    df = extract_running_data_from_json(raw_data_dir)
-                    self.logger.info("Successfully extracted data from JSON")
-                except Exception as json_error:
-                    self.logger.warning(f"JSON extraction failed: {json_error}")
-                    
-                    # Fallback to CSV file
-                    self.logger.info("Falling back to CSV file search...")
-                    input_file = self.find_latest_file(raw_data_dir, 'Running_Data_*.csv')
-                    
-                    if input_file is None:
-                        raise FileNotFoundError(
-                            "No JSON or CSV running data file found. "
-                            "Expected: summarizedActivities.json or Running_Data_*.csv"
-                        )
-                    
-                    # Transform CSV data
-                    self.logger.info(f"Transforming data from CSV: {input_file}")
-                    df = transform_running_data(str(input_file))
-            else:
-                # Use specified file
-                self.logger.info(f"Transforming data from: {input_file}")
-                df = transform_running_data(str(input_file))
-            
-            # If we extracted from JSON, still need to apply transformations
-            if df is not None and 'Distance_Group' not in df.columns:
-                self.logger.info("Applying transformations to extracted data...")
-                # Save to temp CSV and transform
-                import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp:
-                    df.to_csv(tmp.name, index=False)
-                    df = transform_running_data(tmp.name)
-            
-            # Load to database
-            table_name = self.config['tables']['running_data']
+            # Get configuration
+            raw_data_path = self.config['data_paths']['raw_data']
+            table_name = self.config['tables'].get(dataset_name)
+            pattern = force_pattern or self.config['dataset_patterns'].get(dataset_name)
             load_strategy = self.config['etl_settings']['load_strategy']
             
-            self.logger.info(f"Loading to table: {table_name}")
-            self.db_manager.load_dataframe(df, table_name, if_exists=load_strategy)
+            if not table_name:
+                raise ValueError(f"No table configured for {dataset_name}")
+            if not pattern:
+                raise ValueError(f"No pattern configured for {dataset_name}")
+            
+            # EXTRACT: Aggregate JSON files
+            self.logger.info(f"Step 1: Extracting from pattern: {pattern}")
+            aggregator = JSONAggregator(raw_data_path)
+            df = aggregator.aggregate_json_files(pattern, dataset_name)
+            
+            if df is None or len(df) == 0:
+                raise ValueError(f"No data found for {dataset_name}")
+            
+            self.logger.info(f"Extracted {len(df)} records")
+            
+            # TRANSFORM: Apply business rules
+            self.logger.info(f"Step 2: Transforming {dataset_name}")
+            df_transformed = transform_dataset(dataset_name, df)
+            
+            if df_transformed is None:
+                raise ValueError(f"Transformation failed for {dataset_name}")
+            
+            self.logger.info(f"Transformed: {len(df_transformed)} records, {len(df_transformed.columns)} columns")
+            
+            # LOAD: Insert into database
+            self.logger.info(f"Step 3: Loading to table '{table_name}' (strategy: {load_strategy})")
+            self.db_manager.load_dataframe(df_transformed, table_name, if_exists=load_strategy)
             
             # Verify load
             row_count = self.db_manager.get_row_count(table_name)
-            self.logger.info(f"Verification: {row_count} rows in {table_name}")
+            self.logger.info(f"✓ Verification: {row_count} rows in {table_name}")
             
+            # Record success
             self.results['success'].append({
-                'dataset': 'running_data',
-                'rows': len(df),
+                'dataset': dataset_name,
+                'rows_extracted': len(df),
+                'rows_loaded': len(df_transformed),
                 'table': table_name
             })
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to process running data: {e}")
+            self.logger.error(f"✗ Failed to process {dataset_name}: {e}")
             self.results['failed'].append({
-                'dataset': 'running_data',
-                'error': str(e)
-            })
-            return False
-    
-    def process_sleep_data(self, input_file: Optional[str] = None) -> bool:
-        """
-        Process and load sleep data to database.
-        
-        Args:
-            input_file: Path to input file
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            self.logger.info("=" * 60)
-            self.logger.info("Processing Sleep Data")
-            self.logger.info("=" * 60)
-            
-            # TODO: Implement sleep data transformation
-            # This is a placeholder for future implementation
-            self.logger.warning("Sleep data processing not yet implemented")
-            return False
-            
-        except Exception as e:
-            self.logger.error(f"Failed to process sleep data: {e}")
-            self.results['failed'].append({
-                'dataset': 'sleep_data',
+                'dataset': dataset_name,
                 'error': str(e)
             })
             return False
@@ -185,7 +130,7 @@ class GarminETLPipeline:
         Run the complete ETL pipeline for all or specified datasets.
         
         Args:
-            datasets: List of dataset names to process. If None, processes all.
+            datasets: List of dataset names to process. If None, processes all configured datasets.
             
         Returns:
             Dictionary with pipeline results
@@ -193,30 +138,31 @@ class GarminETLPipeline:
         self.logger.info("=" * 60)
         self.logger.info("GARMIN DATA ETL PIPELINE STARTED")
         self.logger.info("=" * 60)
+        self.logger.info(f"Strategy: {self.config['etl_settings']['load_strategy'].upper()}")
+        self.logger.info("=" * 60)
         
         # Test database connection first
         if not self.test_database_connection():
-            self.logger.error("Database connection failed. Aborting pipeline.")
+            self.logger.error("✗ Database connection failed. Aborting pipeline.")
             return self.results
         
-        # Define available datasets
-        available_datasets = {
-            'running_data': self.process_running_data,
-            'sleep_data': self.process_sleep_data,
-            # Add more datasets as they are implemented
-        }
+        self.logger.info("✓ Database connection successful")
+        self.logger.info("=" * 60)
         
         # Determine which datasets to process
         if datasets is None:
-            datasets = ['running_data']  # Default to running_data only for now
+            datasets = self.config['etl_settings'].get('datasets_to_process', [])
+        
+        if not datasets:
+            self.logger.warning("No datasets specified to process")
+            return self.results
+        
+        self.logger.info(f"Datasets to process: {', '.join(datasets)}")
+        self.logger.info("=" * 60)
         
         # Process each dataset
         for dataset_name in datasets:
-            if dataset_name in available_datasets:
-                processor = available_datasets[dataset_name]
-                processor()
-            else:
-                self.logger.warning(f"Unknown dataset: {dataset_name}")
+            self.process_dataset(dataset_name)
         
         # Calculate summary
         self.results['end_time'] = datetime.now()
@@ -231,7 +177,7 @@ class GarminETLPipeline:
     
     def _print_summary(self) -> None:
         """Print pipeline execution summary."""
-        self.logger.info("=" * 60)
+        self.logger.info("\n" + "=" * 60)
         self.logger.info("PIPELINE EXECUTION SUMMARY")
         self.logger.info("=" * 60)
         
@@ -240,16 +186,19 @@ class GarminETLPipeline:
         self.logger.info(f"Failed: {len(self.results['failed'])}")
         
         if self.results['success']:
-            self.logger.info("\nSuccessfully processed:")
+            self.logger.info("\n✓ Successfully processed:")
             for item in self.results['success']:
                 self.logger.info(
-                    f"  - {item['dataset']}: {item['rows']} rows → {item['table']}"
+                    f"  • {item['dataset']}: "
+                    f"{item['rows_extracted']} extracted → "
+                    f"{item['rows_loaded']} loaded → "
+                    f"{item['table']}"
                 )
         
         if self.results['failed']:
-            self.logger.error("\nFailed datasets:")
+            self.logger.error("\n✗ Failed datasets:")
             for item in self.results['failed']:
-                self.logger.error(f"  - {item['dataset']}: {item['error']}")
+                self.logger.error(f"  • {item['dataset']}: {item['error']}")
         
         self.logger.info("=" * 60)
 
@@ -257,7 +206,22 @@ class GarminETLPipeline:
 def main():
     """Main entry point for ETL pipeline."""
     parser = argparse.ArgumentParser(
-        description='Garmin Data ETL Pipeline - Load data to Azure PostgreSQL'
+        description='Garmin Data ETL Pipeline - Automated data processing to Azure PostgreSQL',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run full pipeline (all datasets)
+  python etl_pipeline.py
+
+  # Process specific datasets only
+  python etl_pipeline.py --datasets running_data sleep_data
+
+  # Test database connection
+  python etl_pipeline.py --test-connection
+
+  # Run with custom config
+  python etl_pipeline.py --config my_config.yaml
+        """
     )
     
     parser.add_argument(
@@ -269,9 +233,7 @@ def main():
     parser.add_argument(
         '--datasets',
         nargs='+',
-        choices=['running_data', 'sleep_data', 'all'],
-        default=['running_data'],
-        help='Datasets to process (default: running_data)'
+        help='Specific datasets to process (default: all configured datasets)'
     )
     
     parser.add_argument(
@@ -299,16 +261,23 @@ def main():
         # Test connection only
         if args.test_connection:
             success = pipeline.test_database_connection()
+            if success:
+                logger.info("✓ Database connection test passed")
+            else:
+                logger.error("✗ Database connection test failed")
             sys.exit(0 if success else 1)
         
-        # Handle 'all' datasets option
-        datasets = None if 'all' in args.datasets else args.datasets
-        
         # Run pipeline
-        results = pipeline.run_full_pipeline(datasets=datasets)
+        results = pipeline.run_full_pipeline(datasets=args.datasets)
         
         # Exit with appropriate code
-        sys.exit(0 if not results['failed'] else 1)
+        exit_code = 0 if not results['failed'] else 1
+        if exit_code == 0:
+            logger.info("\n✓ Pipeline completed successfully!")
+        else:
+            logger.error("\n✗ Pipeline completed with errors")
+        
+        sys.exit(exit_code)
         
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
@@ -317,6 +286,8 @@ def main():
         
     except Exception as e:
         logger.error(f"Pipeline failed with error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         sys.exit(1)
 
 

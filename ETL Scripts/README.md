@@ -1,32 +1,45 @@
 # Garmin Data ETL Pipeline
 
-Automated ETL pipeline to extract, transform, and load Garmin running data to Azure PostgreSQL database.
+Comprehensive automated ETL pipeline to extract, transform, and load **all** Garmin datasets from mass exports to Azure PostgreSQL database.
 
 ## Overview
 
-This pipeline automates the data processing workflow from your Garmin data exports to your Azure PostgreSQL database. It includes:
+This pipeline fully automates the data processing workflow from Garmin data exports to your Azure PostgreSQL database. It handles:
 
 - ✅ **Running Data** - Activity metrics, pace, distance, heart rate, etc.
-- 🔜 **Sleep Data** - Sleep stages, duration, quality metrics
-- 🔜 **Training History** - Historical training load and metrics
-- 🔜 **Additional Datasets** - MaxMet, ATL, Race Predictions, UDS
+- ✅ **Sleep Data** - Sleep stages, duration, quality metrics
+- ✅ **ATL (Acute Training Load)** - Training load and recovery metrics
+- ✅ **MaxMet Data** - Max metabolic rate metrics
+- ✅ **Race Predictions** - Predicted race times by distance
+- ✅ **Training History** - Historical training load and metrics
+- ✅ **UDS (User Daily Summary)** - Daily activity summaries
+
+### Key Features
+
+- 🔍 **Auto-Discovery**: Automatically finds and aggregates date-stamped JSON files
+- 🔄 **Truncate & Reload**: Fresh data load every time (no duplicates)
+- 📊 **Multiple Datasets**: Processes 7+ datasets in one run
+- 🛡️ **Error Handling**: Continues processing even if one dataset fails
+- 📝 **Comprehensive Logging**: Detailed logs for troubleshooting
 
 ## Project Structure
 
 ```
 ETL Scripts/
-├── config.template.yaml       # Configuration template (for reference)
-├── config.yaml               # Your actual config with Azure credentials
-├── requirements.txt          # Python dependencies
-├── setup_database_schema.sql # SQL script to create garmin schema
-├── setup_database.py         # Python script to run schema setup
-├── db_utils.py              # Database connection utilities
-├── transform_running_data.py # Running data transformations
-├── etl_pipeline.py          # Main ETL orchestrator
-└── README.md                # This file
+├── config.template.yaml           # Configuration template (for reference)
+├── config.yaml                   # Your actual config with Azure credentials
+├── requirements.txt              # Python dependencies
+├── db_utils.py                  # Database connection utilities
+├── aggregate_json_files.py      # JSON file discovery and aggregation
+├── transform_all_datasets.py    # Transformation logic for all datasets
+├── extract_json_data.py         # Legacy: Running data JSON extraction
+├── transform_running_data.py    # Legacy: Running data transformations
+├── load_final_datasets.py       # Direct CSV to database loader
+├── etl_pipeline.py             # Main ETL orchestrator (USE THIS!)
+└── README.md                   # This file
 ```
 
-## Setup Instructions
+## Quick Start Guide
 
 ### 1. Install Dependencies
 
@@ -35,20 +48,75 @@ cd "ETL Scripts"
 pip install -r requirements.txt
 ```
 
-### 2. Configure Database Connection
+### 2. Configure Your Setup
 
-Your config.yaml has already been created with your Azure PostgreSQL credentials:
+Edit `config.yaml` to point to your Garmin data export folder:
 
 ```yaml
-database:
-  host: "where2run-db2.postgres.database.azure.com"
-  port: 5432
-  database: "Where2run_db2"
-  user: "where2runadmin"
-  password: "RouteGen#1076"
-  sslmode: "require"
-  schema: "garmin"  # Separate schema for Garmin data
+data_paths:
+  raw_data: "path/to/your/garmin/export"  # Change this!
 ```
+
+### 3. Run the Full Pipeline
+
+Process all datasets at once:
+
+```bash
+python etl_pipeline.py
+```
+
+Or process specific datasets only:
+
+```bash
+python etl_pipeline.py --datasets running_data sleep_data
+```
+
+### 4. Test Database Connection
+
+Before running the full pipeline:
+
+```bash
+python etl_pipeline.py --test-connection
+```
+
+## How The Pipeline Works
+
+### Automated Workflow
+
+The pipeline follows this sequence for **each dataset**:
+
+1. **EXTRACT** 📥
+   - Scans your Garmin export folder for JSON files matching the dataset pattern
+   - Example: `**/DI-Connect-Wellness/*sleepData.json`
+   - Automatically aggregates all date-stamped files
+   - Combines into a single DataFrame
+
+2. **TRANSFORM** ⚙️
+   - Cleans and standardizes data (date formats, null handling, etc.)
+   - Applies business rules specific to each dataset
+   - Creates derived columns (e.g., Distance_Group, sleepDurationHours)
+   - Removes duplicates
+
+3. **LOAD** 📤
+   - Truncates existing table in PostgreSQL (fresh start every time)
+   - Bulk inserts transformed data
+   - Verifies row counts
+
+### Dataset Patterns
+
+The pipeline automatically finds files using these patterns:
+
+| Dataset | JSON Pattern |
+|---------|--------------|
+| Running Data | `**/DI-Connect-Fitness/*summarizedActivities*.json` |
+| Sleep Data | `**/DI-Connect-Wellness/*sleepData.json` |
+| ATL Data | `**/DI-Connect-Metrics/MetricsAcuteTrainingLoad_*.json` |
+| MaxMet Data | `**/DI-Connect-Metrics/MetricsMaxMetData_*.json` |
+| Race Predictions | `**/DI-Connect-Metrics/RunRacePredictions_*.json` |
+| Training History | `**/DI-Connect-Metrics/TrainingHistory_*.json` |
+| UDS Data | `**/DI-Connect-Aggregator/UDSFile_*.json` |
+
+**No matter how many date-stamped files you have, the pipeline finds and aggregates them all automatically!**
 
 **Important**: 
 - Your Garmin data will be stored in the `garmin` schema
