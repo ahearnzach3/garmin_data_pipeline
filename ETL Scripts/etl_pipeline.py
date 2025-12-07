@@ -18,6 +18,7 @@ import sys
 from db_utils import DatabaseManager, setup_logging
 from aggregate_json_files import JSONAggregator
 from transform_all_datasets import transform_dataset, TRANSFORM_FUNCTIONS
+from extract_json_data import GarminJSONExtractor
 
 
 class GarminETLPipeline:
@@ -82,8 +83,27 @@ class GarminETLPipeline:
             
             # EXTRACT: Aggregate JSON files
             self.logger.info(f"Step 1: Extracting from pattern: {pattern}")
-            aggregator = JSONAggregator(raw_data_path)
-            df = aggregator.aggregate_json_files(pattern, dataset_name)
+            
+            # Special handling for running_data and summarized_activities
+            if dataset_name in ['running_data', 'summarized_activities']:
+                aggregator = JSONAggregator(raw_data_path)
+                files = aggregator.find_files(pattern)
+                
+                if not files:
+                    raise ValueError(f"No files found for {dataset_name}")
+                
+                # Use GarminJSONExtractor for activity files
+                extractor = GarminJSONExtractor()
+                extractor.load_json(str(files[0]))  # Load the first (should only be one)
+                
+                if dataset_name == 'running_data':
+                    df = extractor.extract_running_activities()
+                else:  # summarized_activities
+                    df = extractor.extract_all_activities()
+            else:
+                # Standard aggregation for other datasets
+                aggregator = JSONAggregator(raw_data_path)
+                df = aggregator.aggregate_json_files(pattern, dataset_name)
             
             if df is None or len(df) == 0:
                 raise ValueError(f"No data found for {dataset_name}")

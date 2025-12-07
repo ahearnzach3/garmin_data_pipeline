@@ -133,6 +133,7 @@ def aggregate_garmin_data(raw_data_path: str) -> Dict[str, pd.DataFrame]:
     # Define all dataset patterns
     dataset_patterns = {
         'running_data': '**/DI-Connect-Fitness/*summarizedActivities*.json',
+        'summarized_activities': '**/DI-Connect-Fitness/*summarizedActivities*.json',
         'sleep_data': '**/DI-Connect-Wellness/*sleepData.json',
         'atl_data': '**/DI-Connect-Metrics/MetricsAcuteTrainingLoad_*.json',
         'maxmet_data': '**/DI-Connect-Metrics/MetricsMaxMetData_*.json',

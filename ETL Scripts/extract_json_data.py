@@ -94,6 +94,77 @@ class GarminJSONExtractor:
         logger.info(f"Extracted {len(self.df)} running activities")
         return self.df
     
+    def extract_all_activities(self) -> pd.DataFrame:
+        """
+        Extract ALL activities from JSON (not just running).
+        
+        Returns:
+            DataFrame with all activities
+        """
+        if self.data is None:
+            raise ValueError("No data loaded. Call load_json() first.")
+        
+        logger.info("Extracting all activities...")
+        
+        all_activities = []
+        
+        for activity in self.data:
+            # Extract all activities without filtering
+            record = {
+                'activityId': activity.get('activityId', None),
+                'activityType': activity.get('activityType', {}).get('typeKey', '') if isinstance(activity.get('activityType'), dict) else activity.get('activityType', ''),
+                'name': activity.get('activityName', ''),
+                'beginTimestamp': activity.get('beginTimestamp', None),
+                'startTimeGmt': activity.get('startTimeGmt', None),
+                'startTimeLocal': activity.get('startTimeLocal', None),
+                'distance': activity.get('distance', 0),
+                'duration': activity.get('duration', 0),
+                'elapsedDuration': activity.get('elapsedDuration', 0),
+                'movingDuration': activity.get('movingDuration', 0),
+                'calories': activity.get('calories', 0),
+                'bmrCalories': activity.get('bmrCalories', 0),
+                'avgSpeed': activity.get('avgSpeed', None),
+                'maxSpeed': activity.get('maxSpeed', None),
+                'avgHr': activity.get('avgHr', None),
+                'maxHr': activity.get('maxHr', None),
+                'avgRunCadence': activity.get('avgRunCadence', None),
+                'maxRunCadence': activity.get('maxRunCadence', None),
+                'steps': activity.get('steps', None),
+                'elevationGain': activity.get('elevationGain', None),
+                'elevationLoss': activity.get('elevationLoss', None),
+                'minElevation': activity.get('minElevation', None),
+                'maxElevation': activity.get('maxElevation', None),
+                'aerobicTrainingEffect': activity.get('aerobicTrainingEffect', None),
+                'anaerobicTrainingEffect': activity.get('anaerobicTrainingEffect', None),
+                'avgStrideLength': activity.get('avgStrideLength', None),
+                'avgPower': activity.get('avgPower', None),
+                'maxPower': activity.get('maxPower', None),
+                'normPower': activity.get('normPower', None),
+                'trainingEffectLabel': activity.get('trainingEffectLabel', None),
+                'activityTrainingLoad': activity.get('activityTrainingLoad', None),
+                'lapCount': activity.get('lapCount', None),
+                'favorite': activity.get('favorite', False),
+                'startLatitude': activity.get('startLatitude', None),
+                'startLongitude': activity.get('startLongitude', None),
+                'endLatitude': activity.get('endLatitude', None),
+                'endLongitude': activity.get('endLongitude', None),
+                'locationName': activity.get('locationName', None),
+                'sportType': activity.get('sportType', None),
+                'deviceId': activity.get('deviceId', None),
+                'manufacturer': activity.get('manufacturer', None),
+                'vO2MaxValue': activity.get('vO2MaxValue', None),
+                'waterEstimated': activity.get('waterEstimated', None),
+                'moderateIntensityMinutes': activity.get('moderateIntensityMinutes', None),
+                'vigorousIntensityMinutes': activity.get('vigorousIntensityMinutes', None),
+            }
+            
+            all_activities.append(record)
+        
+        self.df = pd.DataFrame(all_activities)
+        
+        logger.info(f"Extracted {len(self.df)} activities (all types)")
+        return self.df
+    
     def _format_duration(self, seconds: float) -> str:
         """
         Convert seconds to HH:MM:SS format.

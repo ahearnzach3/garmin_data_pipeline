@@ -296,9 +296,61 @@ def transform_uds_data(df: pd.DataFrame) -> pd.DataFrame:
     return df_cleaned
 
 
+def transform_summarized_activities(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform summarized activities data (ALL activity types).
+    
+    Args:
+        df: Raw summarized activities DataFrame
+        
+    Returns:
+        Transformed DataFrame
+    """
+    logger.info("Transforming summarized activities...")
+    df_cleaned = df.copy()
+    
+    # Convert timestamps
+    date_columns = ['beginTimestamp', 'startTimeGmt', 'startTimeLocal']
+    for col in date_columns:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = pd.to_datetime(df_cleaned[col], unit='ms', errors='coerce')
+    
+    # Convert distances from centimeters to kilometers
+    distance_columns = ['distance']
+    for col in distance_columns:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = df_cleaned[col] / 100000  # cm to km
+    
+    # Convert durations from milliseconds to seconds
+    duration_columns = ['duration', 'elapsedDuration', 'movingDuration']
+    for col in duration_columns:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = df_cleaned[col] / 1000  # ms to seconds
+    
+    # Convert speeds from cm/ms to m/s
+    speed_columns = ['avgSpeed', 'maxSpeed']
+    for col in speed_columns:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = df_cleaned[col] * 10  # cm/ms to m/s
+    
+    # Convert elevations from centimeters to meters
+    elevation_columns = ['elevationGain', 'elevationLoss', 'minElevation', 'maxElevation']
+    for col in elevation_columns:
+        if col in df_cleaned.columns:
+            df_cleaned[col] = df_cleaned[col] / 100  # cm to meters
+    
+    # Remove duplicates by activityId
+    if 'activityId' in df_cleaned.columns:
+        df_cleaned = df_cleaned.drop_duplicates(subset='activityId', keep='first')
+    
+    logger.info(f"Summarized activities transformed: {len(df_cleaned)} records")
+    return df_cleaned
+
+
 # Mapping of dataset names to transformation functions
 TRANSFORM_FUNCTIONS = {
     'running_data': transform_running_data_full,
+    'summarized_activities': transform_summarized_activities,
     'sleep_data': transform_sleep_data,
     'atl_data': transform_atl_data,
     'maxmet_data': transform_maxmet_data,

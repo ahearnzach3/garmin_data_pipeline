@@ -6,7 +6,8 @@ Comprehensive automated ETL pipeline to extract, transform, and load **all** Gar
 
 This pipeline fully automates the data processing workflow from Garmin data exports to your Azure PostgreSQL database. It handles:
 
-- ✅ **Running Data** - Activity metrics, pace, distance, heart rate, etc.
+- ✅ **Running Data** - Filtered running activities (pace, distance, heart rate, etc.)
+- ✅ **Summarized Activities** - ALL activity types (running, walking, HIIT, cycling, etc.)
 - ✅ **Sleep Data** - Sleep stages, duration, quality metrics
 - ✅ **ATL (Acute Training Load)** - Training load and recovery metrics
 - ✅ **MaxMet Data** - Max metabolic rate metrics
